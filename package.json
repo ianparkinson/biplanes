@@ -1,0 +1,1 @@
+{"name":"biplanes","private":true,"scripts":{"build":"tsc","start":"tsc && npx serve ."},"devDependencies":{"typescript":"^5.5.0"}}
