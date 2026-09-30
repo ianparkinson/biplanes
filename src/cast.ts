@@ -8,12 +8,17 @@ declare global { interface Window { __onGCastApiAvailable?: (available: boolean)
 
 let available: Promise<boolean> | null = null;
 
+// Diagnostic: ?castapp=CC1AD845 (Google's default media receiver, which every
+// Chromecast runs) tests device discovery and launching without our app.
+const testAppId = new URLSearchParams(location.search).get("castapp")?.toUpperCase();
+const appId = testAppId && /^[0-9A-F]{8}$/.test(testAppId) ? testAppId : CAST_APP_ID;
+
 export function loadCastSender(): Promise<boolean> {
   return (available ??= new Promise(resolve => {
     window.__onGCastApiAvailable = ok => {
       if (ok) {
         cast.framework.CastContext.getInstance().setOptions({
-          receiverApplicationId: CAST_APP_ID,
+          receiverApplicationId: appId,
           autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED,
         });
       }
@@ -34,6 +39,11 @@ export async function castToTv(): Promise<string> {
   catch (e) { throw new Error(e === "cancel" ? "cancelled" : `Couldn't start the game on the TV (${e}).`); }
   const session = ctx.getCurrentSession();
   if (!session) throw new Error("Couldn't start the game on the TV.");
+  if (appId !== CAST_APP_ID) {
+    const device = session.getCastDevice()?.friendlyName ?? "the device";
+    ctx.endCurrentSession(true);
+    throw new Error(`Test worked: connected to ${device} and launched app ${appId}. Casting itself is fine.`);
+  }
   return new Promise((resolve, reject) => {
     const done = () => { clearInterval(poll); clearTimeout(timer); session.removeMessageListener(CAST_NAMESPACE, onMessage); };
     const onMessage = (_ns: string, data: string | CastMsg) => {
