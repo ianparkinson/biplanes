@@ -1,19 +1,20 @@
 html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: #eee; font-family: monospace; cursor: none; }
+/* Drawn at the screen's full resolution (see fitCanvas), so no CSS pixel scaling. */
 #game { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  width: min(100vw, calc(100vh * 16 / 9)); image-rendering: pixelated; }
+  width: min(100vw, calc(100vh * 16 / 9)); aspect-ratio: 16 / 9; }
 
 /* Joining panel: bottom centre, below the title text. */
 #join { position: absolute; left: 50%; bottom: 4vh; transform: translateX(-50%); display: flex; gap: 3vh;
   align-items: center; background: rgba(0, 0, 20, 0.85); border: 2px solid #fff; padding: 2vh 3vh; max-width: 90vw; }
 #join[hidden] { display: none; }
-#qr { width: 26vh; height: 26vh; image-rendering: pixelated; }
+#qr { width: 26vh; height: 26vh; background: #fff; }
 #join h2 { margin: 0 0 1vh; color: #f5d020; font-size: 4vh; }
 #join p { margin: 0 0 1vh; font-size: 2.4vh; }
 #players { list-style: none; margin: 1vh 0; padding: 0; font-size: 3vh; font-weight: bold; }
 #players li { margin: 0.5vh 0; }
 #join-hint { color: #f5d020; }
 
-#diag { position: absolute; left: 1.5vh; bottom: 1vh; font-size: 1.8vh; color: #888; }
+#diag { position: absolute; left: 1.5vh; bottom: 1vh; font-size: 1.6vh; color: #888; max-width: 22vw; line-height: 1.3; } /* left of the join panel */
 #fatal { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center;
   background: #300; color: #fff; font-size: 3vh; padding: 10vh; white-space: pre-wrap; }
 #fatal[hidden] { display: none; }

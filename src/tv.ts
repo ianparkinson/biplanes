@@ -4,7 +4,7 @@
 import "./tv.css";
 import Peer, { DataConnection } from "peerjs";
 import QRCode from "qrcode";
-import { PLANE_COLORS, SIM_DT } from "./config";
+import { PLANE_COLORS, SIM_DT, W, H } from "./config";
 import { createGame, Input, NO_INPUT, startGame, step } from "./sim";
 import { cpuInput } from "./cpu";
 import { render } from "./render";
@@ -14,7 +14,8 @@ import { describe, ID_PREFIX, newRoomCode, padUrl, TIMEOUT } from "./net";
 import { CAST_NAMESPACE, CastMsg, PadHello, PadMsg, TvMsg } from "./couch";
 
 const $ = (id: string) => document.getElementById(id)!;
-const ctx = ($("game") as HTMLCanvasElement).getContext("2d")!;
+const canvas = $("game") as HTMLCanvasElement;
+const ctx = canvas.getContext("2d")!;
 const now = () => performance.now() / 1000;
 
 // There's no console on a TV, so show any failure on screen.
@@ -31,6 +32,40 @@ function setDiag(key: string, value: string) {
   $("diag").textContent = Object.entries(diag).map(([k, v]) => `${k}: ${v}`).join("  ·  ");
 }
 setDiag("WebRTC", typeof RTCPeerConnection === "function" ? "available" : "NOT AVAILABLE");
+setDiag("Device", (/DeviceType\/(\w+)/.exec(navigator.userAgent)?.[1] ?? "browser")
+  + ` ${innerWidth}x${innerHeight}@${devicePixelRatio}`);
+setDiag("GPU", gpuName());
+
+// The graphics chip, which helps explain device-specific drawing problems.
+function gpuName() {
+  try {
+    const gl = document.createElement("canvas").getContext("webgl");
+    const ext = gl?.getExtension("WEBGL_debug_renderer_info");
+    const name: string = (ext && gl!.getParameter(ext.UNMASKED_RENDERER_WEBGL)) || (gl ? "unknown" : "no WebGL");
+    return name.length > 48 ? name.slice(0, 47) + "…" : name;
+  } catch { return "unknown"; }
+}
+
+// Size the canvas to the screen's real pixels and scale the 800x450 game to fit,
+// rather than having the browser upscale a small canvas.
+function fitCanvas() {
+  const w = Math.round(canvas.clientWidth * devicePixelRatio);
+  if (!w || w === canvas.width) return;
+  canvas.width = w;
+  canvas.height = Math.round(w * H / W);
+  setDiag("Canvas", `${canvas.width}x${canvas.height}`);
+}
+
+// Self-check after the first frame: can the page read back what it drew? If the
+// screen stays blank but this says "ok", the device isn't displaying the canvas.
+function checkCanvas() {
+  try {
+    // The brown earth along the bottom edge is never covered by menus or tint.
+    const [r, g, b] = ctx.getImageData(Math.floor(canvas.width / 2), canvas.height - 2, 1, 1).data;
+    const earth = Math.abs(r - 0x7a) < 24 && Math.abs(g - 0x52) < 24 && Math.abs(b - 0x30) < 24;
+    setDiag("Canvas", `${canvas.width}x${canvas.height} ${earth ? "draws ok" : `READBACK ${r},${g},${b}`}`);
+  } catch (e) { setDiag("Canvas", `readback failed (${e})`); }
+}
 
 // ---- Chromecast receiver -------------------------------------------------------
 
@@ -141,8 +176,11 @@ function sendStatus() {
 
 function showJoin() {
   const url = padUrl(code);
-  QRCode.toCanvas($("qr") as HTMLCanvasElement, url, { margin: 2, width: 300 })
-    .then(() => $("qr").removeAttribute("style"));
+  // An ordinary image rather than a canvas, so players can join even if a device
+  // has trouble showing canvases. Generated at its on-screen size, to stay sharp.
+  const size = Math.round(innerHeight * 0.26 * devicePixelRatio);
+  QRCode.toDataURL(url, { margin: 2, width: size })
+    .then(src => { ($("qr") as HTMLImageElement).src = src; });
   $("join-text").textContent = "Point your phone's camera at the code.";
 }
 
@@ -178,7 +216,7 @@ sfx.init(); // a Cast receiver may play sound straight away; a desktop browser w
 addEventListener("click", () => sfx.init());
 addEventListener("keydown", () => sfx.init());
 
-let last = now(), acc = 0, lastStatus = 0;
+let last = now(), acc = 0, lastStatus = 0, checked = false;
 function frame() {
   const t = now(), dt = Math.min(0.25, t - last);
   last = t;
@@ -196,7 +234,11 @@ function frame() {
 
   effects.update(game, dt);
   const labels = inGame.map((h, i) => (h || game.mode === "title" ? `P${i + 1}` : "CPU")) as [string, string];
+  fitCanvas();
+  const scale = canvas.width / W;
+  ctx.setTransform(scale, 0, 0, scale, 0, 0);
   render(ctx, game, effects.particles, { controls: "tv", labels });
+  if (!checked) { checked = true; checkCanvas(); }
   game.planes.forEach((p, i) =>
     sfx.engine(i, game.mode === "playing" && (p.state === "ground" || p.state === "air"), p.speed, p.x));
   updateJoin();
