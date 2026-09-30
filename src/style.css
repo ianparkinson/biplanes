@@ -1,0 +1,50 @@
+:root { color-scheme: dark; --pad: 96px; }
+html, body { margin: 0; height: 100%; background: #111; color: #ddd; font: 14px monospace; }
+
+#app { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+#stage { position: relative; width: min(100vw, calc((100dvh - 60px) * 16 / 9)); container-type: inline-size; }
+canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+.help { margin: 4px; }
+
+/* Menu buttons sit over the lower part of the title / game-over screen. */
+#menu { position: absolute; left: 0; right: 0; top: 62%; display: flex; flex-wrap: wrap; justify-content: center;
+  align-items: center; gap: 2cqw; padding: 0 4cqw; }
+#menu[hidden] { display: none; }
+#menu button { font: bold clamp(11px, 2.6cqw, 22px) monospace; color: #fff; background: rgba(0, 0, 30, 0.55);
+  border: 3px solid #fff; padding: 1.2cqw 2cqw; cursor: pointer; }
+#menu button.small { font-size: clamp(10px, 1.8cqw, 15px); border-width: 2px; }
+#menu button:hover, #menu button:focus-visible { background: #f5d020; color: #111; outline: none; }
+.key { color: #f5d020; }
+#menu button:hover .key, #menu button:focus-visible .key { color: inherit; }
+
+#controls { display: none; }
+
+/* Touch devices: game in the middle, turn buttons on the left, fire on the right. */
+.touch body { overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.touch .help, .touch .keyboard-only, .touch .key { display: none; }
+.touch #app { display: grid; height: 100dvh; min-height: 0; box-sizing: border-box; align-items: stretch; justify-content: stretch;
+  grid-template-columns: 1fr auto 1fr; grid-template-areas: "left stage right";
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+.touch #stage { grid-area: stage; align-self: center;
+  width: min(calc(100vw - 2 * var(--pad) - env(safe-area-inset-left) - env(safe-area-inset-right)),
+             calc((100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom)) * 16 / 9)); }
+.touch #controls { display: contents; }
+.rotate-hint { display: none; grid-area: hint; align-self: center; text-align: center; color: #777; margin: 0; }
+.pad { display: flex; flex-direction: column; gap: 8px; padding: 8px; min-width: 0; }
+.pad.left { grid-area: left; }
+.pad.right { grid-area: right; }
+.pad button { flex: 1; min-height: 0; font: bold 32px monospace; color: #fff; background: #2a2a3a;
+  border: 2px solid #555; border-radius: 14px; touch-action: none; }
+.pad button[data-control="fire"] { font-size: 22px; background: #5a1d14; border-color: #e8402a; }
+.pad button.pressed { background: #f5d020; border-color: #fff; color: #111; }
+.pad button[data-control="fire"].pressed { background: #e8402a; color: #fff; }
+
+/* Portrait: game across the top, controls fill the space below. */
+@media (orientation: portrait) {
+  .touch #app { grid-template-columns: 1fr 1fr; grid-template-rows: auto 1fr auto;
+    grid-template-areas: "stage stage" "hint hint" "left right"; }
+  .touch .rotate-hint { display: block; }
+  .touch .pad { height: min(260px, 40dvh); box-sizing: border-box; }
+  .touch #stage { width: calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right)); }
+  .touch .pad.left { flex-direction: row; }
+}

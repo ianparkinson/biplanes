@@ -1,1 +1,14 @@
-{"name":"biplanes","private":true,"scripts":{"build":"tsc","start":"tsc && npx serve ."},"devDependencies":{"typescript":"^5.5.0"}}
+{
+  "name": "biplanes",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "vite": "^8.3.1"
+  }
+}
