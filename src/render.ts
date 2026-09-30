@@ -1,13 +1,18 @@
 // Draws a Game onto the canvas. Reads state only.
 import { W, H, GY, HANGAR, MAX_DEATHS, PLANE_COLORS } from "./config";
-import { Game, Plane } from "./sim";
+import { GameView, PlaneView } from "./sim";
+import { Particle } from "./effects";
 
-export interface RenderOptions { touch: boolean }
+export interface RenderOptions {
+  touch: boolean;
+  labels: [string, string]; // HUD names for the two planes
+  me?: number;              // the local player's plane, if only one of them is local
+}
 
-export function render(ctx: CanvasRenderingContext2D, g: Game, opts: RenderOptions) {
+export function render(ctx: CanvasRenderingContext2D, g: GameView, particles: Particle[], opts: RenderOptions) {
   const rect = (c: string, x: number, y: number, w: number, h: number) => { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); };
 
-  function drawPlane(p: Plane) {
+  function drawPlane(p: PlaneView) {
     if (p.state === "dead") return;
     const color = PLANE_COLORS[p.id];
     ctx.save();
@@ -44,10 +49,12 @@ export function render(ctx: CanvasRenderingContext2D, g: Game, opts: RenderOptio
       text("Shoot down your rival " + MAX_DEATHS + " times to win", 250, 18, "#fff");
     } else {
       const [a, b] = g.planes;
-      const p2 = g.vsCpu ? "CPU" : "PLAYER 2";
-      const msg = a.deaths === b.deaths ? "DRAW!" : a.deaths < b.deaths ? (g.vsCpu ? "YOU WIN!" : "PLAYER 1 WINS!") : p2 + " WINS!";
+      const winner = a.deaths === b.deaths ? -1 : a.deaths < b.deaths ? 0 : 1;
+      const msg = winner < 0 ? "DRAW!"
+        : opts.me !== undefined ? (winner === opts.me ? "YOU WIN!" : "YOU LOSE!")
+        : `PLAYER ${winner + 1} WINS!`;
       text("GAME OVER", 110, 56, "#e8402a");
-      text(msg, 190, 40, a.deaths === b.deaths ? "#fff" : PLANE_COLORS[a.deaths < b.deaths ? 0 : 1]);
+      text(msg, 190, 40, winner < 0 ? "#fff" : PLANE_COLORS[winner]);
     }
   }
 
@@ -60,14 +67,14 @@ export function render(ctx: CanvasRenderingContext2D, g: Game, opts: RenderOptio
   rect("#333", HANGAR.x + 20, HANGAR.y + 12, 40, HANGAR.h - 12);
   for (const b of g.bullets) rect("#fff", Math.round(b.x) - 1, Math.round(b.y) - 1, 3, 3);
   g.planes.forEach(drawPlane);
-  for (const pt of g.particles) rect(pt.color, Math.round(pt.x), Math.round(pt.y), 3, 3);
+  for (const pt of particles) rect(pt.color, Math.round(pt.x), Math.round(pt.y), 3, 3);
   if (g.mode !== "title") {
     const [a, b] = g.planes;
     ctx.font = "bold 20px monospace"; ctx.textBaseline = "top";
     ctx.fillStyle = PLANE_COLORS[0]; ctx.textAlign = "left";
-    ctx.fillText("P1 " + "■".repeat(MAX_DEATHS - a.deaths), 12, 10);
+    ctx.fillText(opts.labels[0] + " " + "■".repeat(MAX_DEATHS - a.deaths), 12, 10);
     ctx.fillStyle = PLANE_COLORS[1]; ctx.textAlign = "right";
-    ctx.fillText("■".repeat(MAX_DEATHS - b.deaths) + (g.vsCpu ? " CPU" : " P2"), W - 12, 10);
+    ctx.fillText("■".repeat(MAX_DEATHS - b.deaths) + " " + opts.labels[1], W - 12, 10);
   }
   if (g.mode !== "playing") drawOverlay();
 }

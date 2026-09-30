@@ -11,11 +11,14 @@ export interface Plane {
   cooldown: number; respawn: number; deaths: number;
 }
 export interface Bullet { x: number; y: number; vx: number; vy: number; life: number; owner: number }
-export interface Particle { x: number; y: number; vx: number; vy: number; life: number; color: string }
 export interface Input { rot: number; fire: boolean } // rot: -1 anticlockwise, 1 clockwise
 export type GameEvent =
-  | { type: "shoot" | "whistle" | "explode"; x: number }
+  | { type: "shoot" | "whistle" | "explode"; x: number; y: number }
   | { type: "start" | "gameOver" };
+
+// What a renderer needs; a Game satisfies it, and so does a snapshot received over the network.
+export type PlaneView = Pick<Plane, "id" | "x" | "y" | "a" | "state" | "deaths" | "speed">;
+export interface GameView { mode: Mode; planes: PlaneView[]; bullets: { x: number; y: number }[] }
 
 export interface Game {
   mode: Mode;
@@ -23,8 +26,7 @@ export interface Game {
   time: number;
   planes: Plane[];
   bullets: Bullet[];
-  particles: Particle[];
-  events: GameEvent[]; // sounds etc. raised since the caller last drained them
+  events: GameEvent[]; // sounds, explosions etc. raised since the caller last drained them
 }
 
 export const NO_INPUT: Input = { rot: 0, fire: false };
@@ -45,7 +47,7 @@ function newPlane(id: number): Plane {
 
 export function createGame(): Game {
   return { mode: "title", vsCpu: false, time: 0, planes: SPAWNS.map((_, id) => newPlane(id)),
-    bullets: [], particles: [], events: [] };
+    bullets: [], events: [] };
 }
 
 export const isAlive = (p: Plane) => p.state === "ground" || p.state === "air";
@@ -53,16 +55,8 @@ export const isAlive = (p: Plane) => p.state === "ground" || p.state === "air";
 export function startGame(g: Game, vsCpu: boolean) {
   g.vsCpu = vsCpu;
   g.planes.forEach(p => { p.deaths = 0; resetPlane(p); });
-  g.bullets = []; g.particles = []; g.mode = "playing";
+  g.bullets = []; g.mode = "playing";
   g.events.push({ type: "start" });
-}
-
-function burst(g: Game, x: number, y: number, n: number, colors: string[]) {
-  for (let i = 0; i < n; i++) {
-    const ang = Math.random() * Math.PI * 2, s = 30 + Math.random() * 150;
-    g.particles.push({ x, y, vx: Math.cos(ang) * s, vy: Math.sin(ang) * s - 40,
-      life: 0.5 + Math.random() * 0.8, color: colors[i % colors.length] });
-  }
 }
 
 function crash(g: Game, p: Plane) {
@@ -71,12 +65,11 @@ function crash(g: Game, p: Plane) {
   if (p.state === "ground") return explode(g, p);
   p.vx = p.speed * Math.cos(p.a); p.vy = p.speed * Math.sin(p.a) + p.fall;
   p.state = "crashing";
-  g.events.push({ type: "whistle", x: p.x });
+  g.events.push({ type: "whistle", x: p.x, y: p.y });
 }
 
 function explode(g: Game, p: Plane) {
-  burst(g, p.x, p.y, 40, ["#fff", "#f5d020", "#e8402a", "#444"]);
-  g.events.push({ type: "explode", x: p.x });
+  g.events.push({ type: "explode", x: p.x, y: p.y });
   p.state = "dead"; p.respawn = 2;
 }
 
@@ -91,7 +84,6 @@ function updatePlane(g: Game, p: Plane, inp: Input, dt: number) {
   }
   if (p.state === "crashing") {
     p.vy += 400 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.a += 5 * dt;
-    if (Math.random() < 0.6) g.particles.push({ x: p.x, y: p.y, vx: 0, vy: -20, life: 0.6, color: "#555" });
     if (p.y >= GY - 5 || hitsHangar(p.x, p.y, 8)) explode(g, p);
     return;
   }
@@ -100,7 +92,7 @@ function updatePlane(g: Game, p: Plane, inp: Input, dt: number) {
 
   if (inp.fire && p.cooldown <= 0) {
     p.cooldown = 0.25;
-    g.events.push({ type: "shoot", x: p.x });
+    g.events.push({ type: "shoot", x: p.x, y: p.y });
     g.bullets.push({ x: p.x + Math.cos(p.a) * 16, y: p.y + Math.sin(p.a) * 16,
       vx: Math.cos(p.a) * BULLET_SPEED, vy: Math.sin(p.a) * BULLET_SPEED, life: 1, owner: p.id });
   }
@@ -149,8 +141,6 @@ function stepPlaying(g: Game, inputs: Input[], dt: number) {
 export function step(g: Game, inputs: Input[], dt: number) {
   g.time += dt;
   if (g.mode === "playing") stepPlaying(g, inputs, dt);
-  for (const pt of g.particles) { pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.vy += 120 * dt; pt.life -= dt; }
-  g.particles = g.particles.filter(p => p.life > 0);
   // Game ends once a player has used up all their planes and no wreck is still falling.
   if (g.mode === "playing" && g.planes.some(p => p.deaths >= MAX_DEATHS) && g.planes.every(p => p.state !== "crashing")) {
     g.mode = "over";

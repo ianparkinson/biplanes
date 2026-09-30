@@ -12,11 +12,7 @@
 <div id="app">
   <div id="stage">
     <canvas id="game" width="800" height="450"></canvas>
-    <div id="menu">
-      <button data-start="cpu"><span class="key">1</span> ONE PLAYER (VS CPU)</button>
-      <button data-start="local" class="keyboard-only"><span class="key">2</span> TWO PLAYERS</button>
-      <button id="mute" class="small"><span class="key">M</span> <span id="mute-label">SOUND ON</span></button>
-    </div>
+    <div id="menu"></div>
   </div>
   <div id="controls">
     <div class="pad left">
@@ -31,6 +27,7 @@
   <p class="help">1P: A / D rotate, S fire &nbsp;|&nbsp; 2P: &larr; / &rarr; rotate, &darr; fire &nbsp;|&nbsp; M: mute</p>
   <p class="help">Take off, dogfight, and destroy your rival five times to win.</p>
 </div>
+<div id="panel" hidden></div>
 <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

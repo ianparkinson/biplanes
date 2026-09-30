@@ -19,6 +19,24 @@ canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; 
 
 #controls { display: none; }
 
+/* Dialogs: joining, inviting, connection problems. Cover the whole screen. */
+#panel { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 20, 0.85); padding: 16px; box-sizing: border-box; overflow: auto; touch-action: pan-y; }
+#panel[hidden] { display: none; }
+#panel .card { max-width: 640px; text-align: center; margin: auto; }
+#panel h2 { margin: 0 0 8px; color: #f5d020; font-size: 24px; }
+#panel p { margin: 0 0 12px; font-size: 15px; line-height: 1.4; }
+#panel .invite { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: center; margin-bottom: 12px; }
+#panel .invite canvas { width: 160px; height: 160px; image-rendering: pixelated; }
+#panel .invite > div { flex: 1 1 220px; max-width: 320px; }
+#panel .link { width: 100%; box-sizing: border-box; font: 13px monospace; padding: 8px; margin-bottom: 8px;
+  background: #222; color: #fff; border: 1px solid #555; border-radius: 6px; user-select: text; -webkit-user-select: text; }
+#panel .buttons { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+#panel button { font: bold 16px monospace; color: #fff; background: transparent; border: 2px solid #fff;
+  padding: 10px 16px; min-height: 44px; cursor: pointer; }
+#panel button.primary { background: #f5d020; border-color: #f5d020; color: #111; }
+@media (max-height: 420px) { #panel .invite canvas { width: 120px; height: 120px; } #panel h2 { font-size: 20px; } }
+
 /* Touch devices: game in the middle, turn buttons on the left, fire on the right. */
 .touch body { overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .touch .help, .touch .keyboard-only, .touch .key { display: none; }
