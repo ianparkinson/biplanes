@@ -5,7 +5,7 @@ import { W } from "./config";
 import { GameEvent, GameView, Mode, PlaneState, PlaneView } from "./sim";
 import { wrapAngle } from "./cpu";
 
-const ID_PREFIX = "biplanes-v1-"; // namespaces our room codes on the shared PeerJS broker
+export const ID_PREFIX = "biplanes-v1-"; // namespaces our room codes on the shared PeerJS broker
 const CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no 0/O, 1/I/L
 export const SNAPSHOT_EVERY = 2;  // sim steps per snapshot (30 Hz)
 export const TIMEOUT = 4;         // seconds of silence before the link counts as lost
@@ -119,8 +119,15 @@ export function joinUrl(code: string) {
   return u.toString();
 }
 
-export function codeFromUrl(): string | null {
-  const c = new URLSearchParams(location.search).get("join")?.toUpperCase() ?? "";
+// Link for a phone to join a TV game as a controller.
+export function padUrl(code: string) {
+  const u = new URL("pad.html", location.href);
+  u.searchParams.set("code", code);
+  return u.toString();
+}
+
+export function codeFromUrl(param = "join"): string | null {
+  const c = new URLSearchParams(location.search).get(param)?.toUpperCase() ?? "";
   return /^[A-Z0-9]{6}$/.test(c) ? c : null;
 }
 
@@ -191,9 +198,9 @@ export class HostLink extends Link<GuestMsg, HostMsg> {
   }
 }
 
-export class GuestLink extends Link<HostMsg, GuestMsg> {
+export class GuestLink<In = HostMsg, Out = GuestMsg> extends Link<In, Out> {
   private ready: Promise<Peer>;
-  constructor(readonly code: string, ev: LinkEvents<HostMsg>) {
+  constructor(readonly code: string, ev: LinkEvents<In>, private metadata?: object) {
     super(ev);
     const peer = (this.peer = new Peer({ debug: 1 }));
     this.ready = new Promise(resolve => peer.on("open", () => resolve(peer)));
@@ -205,12 +212,12 @@ export class GuestLink extends Link<HostMsg, GuestMsg> {
   connect() {
     void this.ready.then(peer => {
       if (peer.destroyed) return;
-      this.adopt(peer.connect(ID_PREFIX + this.code, { reliable: false, serialization: "json" }));
+      this.adopt(peer.connect(ID_PREFIX + this.code, { reliable: false, serialization: "json", metadata: this.metadata }));
     });
   }
 }
 
-function describe(type: string) {
+export function describe(type: string) {
   switch (type) {
     case "peer-unavailable": return "That game wasn't found. It may have ended, or the link is out of date.";
     case "network": case "server-error": case "socket-error": case "socket-closed":

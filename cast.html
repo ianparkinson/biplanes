@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Biplanes on TV</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+<canvas id="game" width="800" height="450"></canvas>
+<div id="join" hidden>
+  <canvas id="qr"></canvas>
+  <div>
+    <h2>SCAN TO PLAY</h2>
+    <p id="join-text">Point your phone's camera at the code.</p>
+    <ul id="players"></ul>
+    <p id="join-hint"></p>
+  </div>
+</div>
+<div id="diag">Starting…</div>
+<div id="fatal" hidden></div>
+<script type="module" src="/src/tv.ts"></script>
+</body>
+</html>

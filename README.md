@@ -9,6 +9,10 @@ and shoot down your rival five times to win.
 - **Two players** on one keyboard
 - **Online** against a friend: one phone hosts and shares a link or QR code,
   the other joins. Uses WebRTC via the public [PeerJS](https://peerjs.com) server.
+- **Couch play on a TV**: choose *Play on TV* in Chrome to cast to a Chromecast
+  with Google TV, and phones become controllers (scan the QR code on the TV to
+  join). Without a Chromecast, open [`cast.html`](https://ianparkinson.github.io/biplanes/cast.html)
+  in any browser on a big screen.
 
 ## Controls
 

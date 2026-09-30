@@ -4,7 +4,7 @@ import { GameView, PlaneView } from "./sim";
 import { Particle } from "./effects";
 
 export interface RenderOptions {
-  touch: boolean;
+  controls: "keys" | "touch" | "tv"; // which how-to-play hints the title screen shows
   labels: [string, string]; // HUD names for the two planes
   me?: number;              // the local player's plane, if only one of them is local
 }
@@ -40,7 +40,9 @@ export function render(ctx: CanvasRenderingContext2D, g: GameView, particles: Pa
     ctx.fillStyle = "rgba(0,0,40,0.45)"; ctx.fillRect(0, 0, W, GY);
     if (g.mode === "title") {
       text("BIPLANES", 100, 72, "#f5d020");
-      if (opts.touch) {
+      if (opts.controls === "tv") {
+        text("Scan the code with your phone to play", 180, 20, "#fff");
+      } else if (opts.controls === "touch") {
         text("↺ ↻  turn     FIRE  shoot", 180, 20, PLANE_COLORS[0]);
       } else {
         text("P1  A / D rotate,  S fire", 180, 20, PLANE_COLORS[0]);

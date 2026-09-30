@@ -14,7 +14,8 @@ import { Effects } from "./effects";
 import { Sfx } from "./audio";
 import { KEYS, Keyboard, TouchControls, combine } from "./input";
 import { hidePanel, MenuItem, setMenu, showPanel } from "./ui";
-import { clearJoinFromUrl, codeFromUrl, GuestLink, HostLink, joinUrl, Snapshot, SnapshotBuffer, encodeSnapshot, TIMEOUT } from "./net";
+import { clearJoinFromUrl, codeFromUrl, GuestLink, HostLink, joinUrl, padUrl, Snapshot, SnapshotBuffer, encodeSnapshot, TIMEOUT } from "./net";
+import { castToTv, loadCastSender } from "./cast";
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
@@ -167,6 +168,21 @@ function startOnline() {
 
 function toggleMute() { sfx.toggleMute(); }
 
+// Couch play: start the TV app on a Chromecast, then turn this phone into a controller.
+let canCast = false;
+void loadCastSender().then(ok => { canCast = ok; });
+
+function playOnTv() {
+  showPanel({ title: "PLAY ON TV", text: "Pick your Chromecast, then wait for the game to start on the TV…",
+    buttons: [{ label: "CANCEL", action: hidePanel }] });
+  castToTv()
+    .then(code => { location.href = padUrl(code); })
+    .catch((e: Error) => {
+      if (e.message === "cancelled") hidePanel();
+      else showPanel({ title: "PLAY ON TV", text: e.message, buttons: [{ label: "OK", action: hidePanel, primary: true }] });
+    });
+}
+
 function menuItems(mode: GameView["mode"]): MenuItem[] | null {
   if (mode === "playing") return null;
   const sound: MenuItem = { label: sfx.muted ? "SOUND OFF" : "SOUND ON", key: "M", action: toggleMute, small: true };
@@ -174,6 +190,7 @@ function menuItems(mode: GameView["mode"]): MenuItem[] | null {
     { label: "ONE PLAYER (VS CPU)", key: "1", action: () => startLocal(true) },
     { label: "TWO PLAYERS", key: "2", action: () => startLocal(false), keyboardOnly: true },
     { label: "PLAY A FRIEND ONLINE", key: "3", action: hostOnline },
+    ...(canCast ? [{ label: "PLAY ON TV", key: "4", action: playOnTv }] : []),
     sound,
   ];
   return [
@@ -201,6 +218,7 @@ addEventListener("keydown", e => {
     if (digit === "1") startLocal(true);
     if (digit === "2") startLocal(false);
     if (digit === "3") hostOnline();
+    if (digit === "4" && canCast) playOnTv();
   } else if (digit === "1") startOnline();
 });
 
@@ -209,9 +227,10 @@ addEventListener("keydown", e => {
 function localInput(): Input { return combine(keyboard.input(KEYS[0]), touch.input()); }
 
 function renderOptions(): RenderOptions {
-  if (role === "host") return { touch: touchMode, labels: ["YOU", "FRIEND"], me: 0 };
-  if (role === "guest") return { touch: touchMode, labels: ["FRIEND", "YOU"], me: 1 };
-  return game.vsCpu ? { touch: touchMode, labels: ["P1", "CPU"], me: 0 } : { touch: touchMode, labels: ["P1", "P2"] };
+  const controls = touchMode ? "touch" : "keys";
+  if (role === "host") return { controls, labels: ["YOU", "FRIEND"], me: 0 };
+  if (role === "guest") return { controls, labels: ["FRIEND", "YOU"], me: 1 };
+  return game.vsCpu ? { controls, labels: ["P1", "CPU"], me: 0 } : { controls, labels: ["P1", "P2"] };
 }
 
 let last = now(), acc = 0;

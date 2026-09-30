@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en" class="touch">
+<head>
+<meta charset="utf-8">
+<title>Biplanes controller</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#111111">
+</head>
+<body>
+<div id="app">
+  <div id="stage" class="info">
+    <div id="badge">BIPLANES</div>
+    <div id="lives"></div>
+    <p id="status">Connecting to the TV…</p>
+    <div id="actions">
+      <button id="start" hidden>START</button>
+      <button id="leave">LEAVE</button>
+    </div>
+  </div>
+  <div id="controls">
+    <div class="pad left">
+      <button data-control="ccw" aria-label="Turn anticlockwise">&#x21BA;</button>
+      <button data-control="cw" aria-label="Turn clockwise">&#x21BB;</button>
+    </div>
+    <div class="pad right">
+      <button data-control="fire">FIRE</button>
+    </div>
+  </div>
+</div>
+<script type="module" src="/src/pad.ts"></script>
+</body>
+</html>
