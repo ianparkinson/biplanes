@@ -1,33 +1,45 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<title>Biplanes</title>
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<meta name="theme-color" content="#111111">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-</head>
-<body>
-<div id="app">
-  <div id="stage">
-    <canvas id="game" width="800" height="450"></canvas>
-    <div id="menu"></div>
-  </div>
-  <div id="controls">
-    <div class="pad left">
-      <button data-control="ccw" aria-label="Turn anticlockwise">&#x21BA;</button>
-      <button data-control="cw" aria-label="Turn clockwise">&#x21BB;</button>
+  <head>
+    <meta charset="utf-8" />
+    <title>Biplanes</title>
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"
+    />
+    <meta name="theme-color" content="#111111" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+  </head>
+  <body>
+    <div id="app">
+      <div id="stage">
+        <canvas id="game" width="800" height="450"></canvas>
+        <div id="menu"></div>
+      </div>
+      <div id="controls">
+        <div class="pad left">
+          <button data-control="ccw" aria-label="Turn anticlockwise">
+            &#x21BA;
+          </button>
+          <button data-control="cw" aria-label="Turn clockwise">
+            &#x21BB;
+          </button>
+        </div>
+        <div class="pad right">
+          <button data-control="fire">FIRE</button>
+        </div>
+      </div>
+      <p class="rotate-hint">Turn your phone sideways for a bigger view</p>
+      <p class="help">
+        1P: A / D rotate, S fire &nbsp;|&nbsp; 2P: &larr; / &rarr; rotate,
+        &darr; fire &nbsp;|&nbsp; M: mute
+      </p>
+      <p class="help">
+        Take off, dogfight, and destroy your rival five times to win.
+      </p>
     </div>
-    <div class="pad right">
-      <button data-control="fire">FIRE</button>
-    </div>
-  </div>
-  <p class="rotate-hint">Turn your phone sideways for a bigger view</p>
-  <p class="help">1P: A / D rotate, S fire &nbsp;|&nbsp; 2P: &larr; / &rarr; rotate, &darr; fire &nbsp;|&nbsp; M: mute</p>
-  <p class="help">Take off, dogfight, and destroy your rival five times to win.</p>
-</div>
-<div id="panel" hidden></div>
-<script type="module" src="/src/main.ts"></script>
-</body>
+    <div id="panel" hidden></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
 </html>

@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vite"
 
 // Relative base so the build works from a GitHub Pages project subpath.
 export default defineConfig({
@@ -9,4 +9,4 @@ export default defineConfig({
       input: { main: "index.html", tv: "cast.html", pad: "pad.html" },
     },
   },
-});
+})

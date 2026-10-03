@@ -1,12 +1,51 @@
 /* Phone-as-controller screen. Reuses the game's touch layout, with a status
    panel where the game would be. */
-.info { text-align: center; padding: 12px; box-sizing: border-box; }
-#badge { font: bold 28px monospace; letter-spacing: 2px; color: #f5d020; }
-#lives { font: bold 26px monospace; min-height: 32px; margin: 6px 0; }
-#status { font-size: 16px; line-height: 1.4; margin: 6px 0 12px; }
-#actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-#actions button { font: bold 18px monospace; color: #fff; background: transparent; border: 2px solid #fff;
-  padding: 10px 20px; min-height: 48px; }
-#actions #start { background: #f5d020; border-color: #f5d020; color: #111; font-size: 22px; padding: 12px 32px; }
-#actions button[hidden] { display: none; }
-@media (orientation: portrait) { .touch .info { padding-top: 32px; } }
+.info {
+  text-align: center;
+  padding: 12px;
+  box-sizing: border-box;
+}
+#badge {
+  font: bold 28px monospace;
+  letter-spacing: 2px;
+  color: #f5d020;
+}
+#lives {
+  font: bold 26px monospace;
+  min-height: 32px;
+  margin: 6px 0;
+}
+#status {
+  font-size: 16px;
+  line-height: 1.4;
+  margin: 6px 0 12px;
+}
+#actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+#actions button {
+  font: bold 18px monospace;
+  color: #fff;
+  background: transparent;
+  border: 2px solid #fff;
+  padding: 10px 20px;
+  min-height: 48px;
+}
+#actions #start {
+  background: #f5d020;
+  border-color: #f5d020;
+  color: #111;
+  font-size: 22px;
+  padding: 12px 32px;
+}
+#actions button[hidden] {
+  display: none;
+}
+@media (orientation: portrait) {
+  .touch .info {
+    padding-top: 32px;
+  }
+}
