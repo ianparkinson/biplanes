@@ -2,69 +2,79 @@
 // snapshots; the guest sends its inputs and draws what the host sends.
 import Peer, { DataConnection } from "peerjs"
 
-import { W } from "./config"
-import { wrapAngle } from "./cpu"
+import { wrapAngle, wrapX, wrappedDx } from "./geometry"
 import { GameEvent, GameView, Mode, PlaneState, PlaneView } from "./sim"
 
 export const ID_PREFIX = "biplanes-v1-" // namespaces our room codes on the shared PeerJS broker
 const CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789" // no 0/O, 1/I/L
-export const SNAPSHOT_EVERY = 2 // sim steps per snapshot (30 Hz)
-export const TIMEOUT = 4 // seconds of silence before the link counts as lost
+const CODE_LENGTH = 6
+export const TIMEOUT = 4 // seconds of silence before a link counts as lost
 
 // ---- Messages ----------------------------------------------------------------
 
+// Snapshots are sent ~30 times a second, so planes and bullets are packed into
+// tuples, with states and modes as indexes into these lists.
 type PlaneTuple = [
   x: number,
   y: number,
-  a: number,
+  angle: number,
   state: number,
   deaths: number,
   speed: number,
 ]
+type BulletTuple = [x: number, y: number, vx: number, vy: number]
 const STATES: PlaneState[] = ["ground", "air", "crashing", "dead"]
 const MODES: Mode[] = ["title", "playing", "over"]
 
+// An event tagged with a sequence number and the host time it happened.
+export type TimedEvent = [id: number, time: number, event: GameEvent]
+
 export interface Snapshot {
-  t: "state"
+  type: "state"
   time: number // host sim time, seconds
   mode: number
   planes: PlaneTuple[]
-  bullets: [x: number, y: number, vx: number, vy: number][]
-  events: [id: number, time: number, e: GameEvent][] // recent events, repeated so a lost packet loses none
+  bullets: BulletTuple[]
+  events: TimedEvent[] // the last second's events, repeated so a lost packet loses none
 }
 export type HostMsg = Snapshot
 export type GuestMsg =
-  { t: "input"; seq: number; rot: number; fire: boolean } | { t: "start" } // guest asks the host to start a (new) game
+  | { type: "input"; seq: number; turn: number; fire: boolean }
+  | { type: "start" } // asks the host to start a (new) game
 
-const r1 = (n: number) => Math.round(n * 10) / 10
-const r3 = (n: number) => Math.round(n * 1000) / 1000
+function roundTo1dp(value: number) {
+  return Math.round(value * 10) / 10
+}
+function roundTo3dp(value: number) {
+  return Math.round(value * 1000) / 1000
+}
 
 export function encodeSnapshot(
-  g: {
+  game: {
     time: number
     mode: Mode
     planes: PlaneView[]
     bullets: { x: number; y: number; vx: number; vy: number }[]
   },
-  events: Snapshot["events"],
+  events: TimedEvent[],
 ): Snapshot {
   return {
-    t: "state",
-    time: r3(g.time),
-    mode: MODES.indexOf(g.mode),
-    planes: g.planes.map((p) => [
-      r1(p.x),
-      r1(p.y),
-      r3(p.a),
-      STATES.indexOf(p.state),
-      p.deaths,
-      r1(p.speed),
+    type: "state",
+    time: roundTo3dp(game.time),
+    mode: MODES.indexOf(game.mode),
+    planes: game.planes.map((plane) => [
+      roundTo1dp(plane.x),
+      roundTo1dp(plane.y),
+      roundTo3dp(plane.angle),
+      STATES.indexOf(plane.state),
+      plane.deaths,
+      roundTo1dp(plane.speed),
     ]),
-    bullets: g.bullets.map((b) => [
-      r1(b.x),
-      r1(b.y),
-      Math.round(b.vx),
-      Math.round(b.vy),
+    bullets: game.bullets.map((bullet) => [
+      roundTo1dp(bullet.x),
+      roundTo1dp(bullet.y),
+      Math.round(bullet.vx),
+      Math.round(bullet.vy),
     ]),
     events,
   }
@@ -72,144 +82,164 @@ export function encodeSnapshot(
 
 // ---- Guest-side smoothing ----------------------------------------------------
 
-// Snapshots arrive unevenly, so the guest draws the game slightly in the past,
-// blending between the two snapshots either side of that moment.
+// Snapshots arrive unevenly (and occasionally not at all), so the guest draws
+// the game slightly in the past, blending between the two snapshots either side
+// of that moment. That moment is RENDER_DELAY behind the newest host time.
 const RENDER_DELAY = 0.1 // seconds
+const MAX_SNAPSHOTS = 30 // about a second's worth
+const CLOCK_WINDOW = 2 // seconds of arrivals used to estimate the host clock
 
 export class SnapshotBuffer {
-  private snaps: Snapshot[] = []
-  private offsets: { at: number; offset: number }[] = [] // host time minus local time, per arrival
-  private lastEvent = 0
-  private pending: [number, number, GameEvent][] = []
+  private snapshots: Snapshot[] = []
+  // For each recent arrival: host time minus local time when it arrived. Network
+  // delay only ever makes this smaller, so the largest is the best clock estimate.
+  private clockOffsets: { at: number; offset: number }[] = []
+  private lastEventId = 0
+  private pendingEvents: TimedEvent[] = []
 
-  push(s: Snapshot, now: number) {
-    if (this.snaps.length && s.time <= this.snaps[this.snaps.length - 1].time)
-      return // stale: the channel is unordered
-    this.snaps.push(s)
-    if (this.snaps.length > 30) this.snaps.shift()
-    this.offsets.push({ at: now, offset: s.time - now })
-    this.offsets = this.offsets.filter((o) => now - o.at < 2)
-    for (const ev of s.events)
-      if (ev[0] > this.lastEvent) {
-        this.pending.push(ev)
-        this.lastEvent = ev[0]
+  push(snapshot: Snapshot, now: number) {
+    const newest = this.snapshots[this.snapshots.length - 1]
+    if (newest && snapshot.time <= newest.time) return // stale: the channel is unordered
+    this.snapshots.push(snapshot)
+    if (this.snapshots.length > MAX_SNAPSHOTS) this.snapshots.shift()
+    this.clockOffsets.push({ at: now, offset: snapshot.time - now })
+    this.clockOffsets = this.clockOffsets.filter(
+      (sample) => now - sample.at < CLOCK_WINDOW,
+    )
+    for (const timedEvent of snapshot.events) {
+      const [id] = timedEvent
+      if (id > this.lastEventId) {
+        this.pendingEvents.push(timedEvent)
+        this.lastEventId = id
       }
+    }
   }
 
   reset() {
-    this.snaps = []
-    this.offsets = []
-    this.pending = []
-    this.lastEvent = 0
+    this.snapshots = []
+    this.clockOffsets = []
+    this.pendingEvents = []
+    this.lastEventId = 0
   }
 
   get empty() {
-    return this.snaps.length === 0
+    return this.snapshots.length === 0
   }
 
-  // Host time to draw at: the least-delayed recent arrival sets the clock.
+  // The host time to draw at.
   private renderTime(now: number) {
-    return now + Math.max(...this.offsets.map((o) => o.offset)) - RENDER_DELAY
+    const offset = Math.max(...this.clockOffsets.map((sample) => sample.offset))
+    return now + offset - RENDER_DELAY
   }
 
-  // Events that have now come due (sounds and explosions stay in step with the picture).
+  // Events that have now come due, so sounds and explosions stay in step with the picture.
   takeEvents(now: number): GameEvent[] {
     if (this.empty) return []
-    const t = this.renderTime(now)
-    const due = this.pending.filter((ev) => ev[1] <= t)
-    this.pending = this.pending.filter((ev) => ev[1] > t)
-    return due.map((ev) => ev[2])
+    const time = this.renderTime(now)
+    const due = this.pendingEvents.filter(([, eventTime]) => eventTime <= time)
+    this.pendingEvents = this.pendingEvents.filter(
+      ([, eventTime]) => eventTime > time,
+    )
+    return due.map(([, , event]) => event)
   }
 
   view(now: number): GameView | null {
     if (this.empty) return null
-    const t = this.renderTime(now)
-    let i = this.snaps.length - 1
-    while (i > 0 && this.snaps[i - 1].time > t) i--
-    const b = this.snaps[i],
-      a = this.snaps[Math.max(0, i - 1)]
-    const k =
-      b.time > a.time
-        ? Math.max(0, Math.min(1, (t - a.time) / (b.time - a.time)))
+    const time = this.renderTime(now)
+
+    // Find the pair of snapshots either side of `time` (or the oldest/newest
+    // pair if it falls outside them), and how far between them it is (0..1).
+    let index = this.snapshots.length - 1
+    while (index > 0 && this.snapshots[index - 1].time > time) index--
+    const newer = this.snapshots[index]
+    const older = this.snapshots[Math.max(0, index - 1)]
+    const blend =
+      newer.time > older.time
+        ? Math.max(
+            0,
+            Math.min(1, (time - older.time) / (newer.time - older.time)),
+          )
         : 1
-    const planes = b.planes.map((pb, id): PlaneView => {
-      const pa = a.planes[id]
-      const plane = (
-        p: PlaneTuple,
+
+    const planes = newer.planes.map((newerPlane, id): PlaneView => {
+      const olderPlane = older.planes[id]
+      const [oldX, oldY, oldAngle, oldState, oldDeaths] = olderPlane
+      const [newX, newY, newAngle, newState, newDeaths] = newerPlane
+      function planeView(
+        [, , , state, deaths, speed]: PlaneTuple,
         x: number,
         y: number,
-        ang: number,
-      ): PlaneView => ({
-        id,
-        x,
-        y,
-        a: ang,
-        state: STATES[p[3]],
-        deaths: p[4],
-        speed: p[5],
-      })
-      // Don't blend across a respawn or a change of state.
-      if (pa[3] !== pb[3] || pa[4] !== pb[4]) {
-        const p = k < 0.5 ? pa : pb
-        return plane(p, p[0], p[1], p[2])
+        angle: number,
+      ): PlaneView {
+        return { id, x, y, angle, state: STATES[state], deaths, speed }
       }
-      let dx = pb[0] - pa[0]
-      if (dx > W / 2) dx -= W
-      if (dx < -W / 2) dx += W
-      return plane(
-        pb,
-        (pa[0] + dx * k + W) % W,
-        pa[1] + (pb[1] - pa[1]) * k,
-        pa[2] + wrapAngle(pb[2] - pa[2]) * k,
+      // Don't blend across a respawn or a change of state: snap to the nearer one.
+      if (oldState !== newState || oldDeaths !== newDeaths) {
+        const nearer = blend < 0.5 ? olderPlane : newerPlane
+        const [x, y, angle] = nearer
+        return planeView(nearer, x, y, angle)
+      }
+      // Blend position and heading, going the short way round the wrapping
+      // world and the shorter way round the circle.
+      return planeView(
+        newerPlane,
+        wrapX(oldX + wrappedDx(oldX, newX) * blend),
+        oldY + (newY - oldY) * blend,
+        oldAngle + wrapAngle(newAngle - oldAngle) * blend,
       )
     })
+
     // Bullets fly in straight lines, so move the older snapshot's bullets forward.
-    const dt = Math.max(0, t - a.time)
-    const bullets = a.bullets.map(([x, y, vx, vy]) => ({
-      x: (x + vx * dt + W) % W,
-      y: y + vy * dt,
+    const elapsed = Math.max(0, time - older.time)
+    const bullets = older.bullets.map(([x, y, vx, vy]) => ({
+      x: wrapX(x + vx * elapsed),
+      y: y + vy * elapsed,
     }))
-    return { mode: MODES[b.mode], planes, bullets }
+    return { mode: MODES[newer.mode], planes, bullets }
   }
 }
 
-// ---- Connections -------------------------------------------------------------
+// ---- Links and room codes ------------------------------------------------------
 
 export function newRoomCode() {
-  let c = ""
-  for (let i = 0; i < 6; i++)
-    c += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]
-  return c
+  let code = ""
+  for (let i = 0; i < CODE_LENGTH; i++)
+    code += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]
+  return code
 }
 
+// Link that invites a friend to an online game.
 export function joinUrl(code: string) {
-  const u = new URL(location.href)
-  u.search = ""
-  u.hash = ""
-  u.searchParams.set("join", code)
-  return u.toString()
+  const url = new URL(location.href)
+  url.search = ""
+  url.hash = ""
+  url.searchParams.set("join", code)
+  return url.toString()
 }
 
 // Link for a phone to join a TV game as a controller.
 export function padUrl(code: string) {
-  const u = new URL("pad.html", location.href)
-  u.searchParams.set("code", code)
-  return u.toString()
+  const url = new URL("pad.html", location.href)
+  url.searchParams.set("code", code)
+  return url.toString()
 }
 
 export function codeFromUrl(param = "join"): string | null {
-  const c = new URLSearchParams(location.search).get(param)?.toUpperCase() ?? ""
-  return /^[A-Z0-9]{6}$/.test(c) ? c : null
+  const code =
+    new URLSearchParams(location.search).get(param)?.toUpperCase() ?? ""
+  return /^[A-Z0-9]{6}$/.test(code) ? code : null
 }
 
 export function clearJoinFromUrl() {
-  const u = new URL(location.href)
-  if (!u.searchParams.has("join")) return
-  u.searchParams.delete("join")
-  history.replaceState(null, "", u)
+  const url = new URL(location.href)
+  if (!url.searchParams.has("join")) return
+  url.searchParams.delete("join")
+  history.replaceState(null, "", url)
 }
 
-interface LinkEvents<In> {
+// ---- Connections -------------------------------------------------------------
+
+interface LinkHandlers<In> {
   onMessage(msg: In): void
   onOpen(): void
   onClose(): void
@@ -220,40 +250,37 @@ interface LinkEvents<In> {
 abstract class Link<In, Out> {
   protected peer: Peer | null = null
   protected conn: DataConnection | null = null
-  lastHeard = 0
-  constructor(protected ev: LinkEvents<In>) {}
+  lastHeard = 0 // seconds, performance.now() clock
+  constructor(protected handlers: LinkHandlers<In>) {}
 
   get open() {
     return !!this.conn?.open
   }
+
   send(msg: Out) {
     if (this.conn?.open) this.conn.send(msg)
   }
 
+  // Makes `conn` the current connection, replacing (and closing) any previous one.
   protected adopt(conn: DataConnection) {
     this.conn?.close()
     this.conn = conn
     conn.on("open", () => {
       this.lastHeard = performance.now() / 1000
-      this.ev.onOpen()
+      this.handlers.onOpen()
     })
-    conn.on("data", (d) => {
+    conn.on("data", (data) => {
       if (conn !== this.conn) return
       this.lastHeard = performance.now() / 1000
-      this.ev.onMessage(d as In)
+      this.handlers.onMessage(data as In)
     })
-    conn.on("close", () => {
-      if (conn === this.conn) {
-        this.conn = null
-        this.ev.onClose()
-      }
-    })
-    conn.on("error", () => {
-      if (conn === this.conn) {
-        this.conn = null
-        this.ev.onClose()
-      }
-    })
+    const lost = () => {
+      if (conn !== this.conn) return
+      this.conn = null
+      this.handlers.onClose()
+    }
+    conn.on("close", lost)
+    conn.on("error", lost)
   }
 
   close() {
@@ -268,55 +295,63 @@ abstract class Link<In, Out> {
 // that reconnects (same link) replaces the old connection.
 export class HostLink extends Link<GuestMsg, HostMsg> {
   code = ""
-  constructor(ev: LinkEvents<GuestMsg> & { onReady(code: string): void }) {
-    super(ev)
-    this.register(ev.onReady, 3)
+
+  constructor(
+    handlers: LinkHandlers<GuestMsg> & { onReady(code: string): void },
+  ) {
+    super(handlers)
+    this.register(handlers.onReady, 3)
   }
 
-  private register(onReady: (code: string) => void, tries: number) {
+  private register(onReady: (code: string) => void, attemptsLeft: number) {
     this.code = newRoomCode()
     const peer = (this.peer = new Peer(ID_PREFIX + this.code, { debug: 1 }))
     peer.on("open", () => onReady(this.code))
     peer.on("connection", (conn) => this.adopt(conn))
+    // Lost touch with the broker (not the guest): re-register the same code.
     peer.on("disconnected", () => {
       if (!peer.destroyed) peer.reconnect()
-    }) // lost the broker, not the guest
+    })
     peer.on("error", (err) => {
       if (peer !== this.peer) return
-      if (err.type === "unavailable-id" && tries > 1) {
-        // room code clash: pick another
+      if (err.type === "unavailable-id" && attemptsLeft > 1) {
+        // Someone else has this room code: pick another.
         peer.destroy()
-        this.register(onReady, tries - 1)
+        this.register(onReady, attemptsLeft - 1)
       } else {
-        this.ev.onError(describe(err.type))
+        this.handlers.onError(describeError(err.type))
       }
     })
   }
 }
 
+// Connects to a host (or a TV) by room code. `metadata` is passed to the other
+// end with the connection.
 export class GuestLink<In = HostMsg, Out = GuestMsg> extends Link<In, Out> {
   private ready: Promise<Peer>
+
   constructor(
     readonly code: string,
-    ev: LinkEvents<In>,
+    handlers: LinkHandlers<In>,
     private metadata?: object,
   ) {
-    super(ev)
+    super(handlers)
     const peer = (this.peer = new Peer({ debug: 1 }))
     this.ready = new Promise((resolve) => peer.on("open", () => resolve(peer)))
     peer.on("disconnected", () => {
       if (!peer.destroyed) peer.reconnect()
     })
-    peer.on("error", (err) => ev.onError(describe(err.type)))
+    peer.on("error", (err) => handlers.onError(describeError(err.type)))
     this.connect()
   }
 
+  // (Re)connects; safe to call again after the connection drops.
   connect() {
     void this.ready.then((peer) => {
       if (peer.destroyed) return
       this.adopt(
         peer.connect(ID_PREFIX + this.code, {
-          reliable: false,
+          reliable: false, // unordered, so a delayed message doesn't hold up newer ones
           serialization: "json",
           metadata: this.metadata,
         }),
@@ -325,7 +360,8 @@ export class GuestLink<In = HostMsg, Out = GuestMsg> extends Link<In, Out> {
   }
 }
 
-export function describe(type: string) {
+// A player-facing explanation of a PeerJS error type.
+export function describeError(type: string) {
   switch (type) {
     case "peer-unavailable":
       return "That game wasn't found. It may have ended, or the link is out of date."

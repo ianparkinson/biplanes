@@ -14,37 +14,38 @@ let available: Promise<boolean> | null = null
 
 export function loadCastSender(): Promise<boolean> {
   return (available ??= new Promise((resolve) => {
-    window.__onGCastApiAvailable = (ok) => {
-      if (ok) {
+    // The SDK calls this global once it has loaded.
+    window.__onGCastApiAvailable = (available) => {
+      if (available) {
         cast.framework.CastContext.getInstance().setOptions({
           receiverApplicationId: CAST_APP_ID,
           autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED,
         })
       }
-      resolve(ok)
+      resolve(available)
     }
-    const s = document.createElement("script")
-    s.src =
+    const script = document.createElement("script")
+    script.src =
       "https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"
-    s.onerror = () => resolve(false)
-    document.head.append(s)
+    script.onerror = () => resolve(false)
+    document.head.append(script)
     setTimeout(() => resolve(false), 10000)
   }))
 }
 
 // Shows Chrome's device picker, starts the TV app and resolves with its room code.
 export async function castToTv(): Promise<string> {
-  const ctx = cast.framework.CastContext.getInstance()
+  const context = cast.framework.CastContext.getInstance()
   try {
-    await ctx.requestSession()
-  } catch (e) {
+    await context.requestSession()
+  } catch (errorCode) {
     throw new Error(
-      e === "cancel"
+      errorCode === "cancel"
         ? "cancelled"
-        : `Couldn't start the game on the TV (${e}).`,
+        : `Couldn't start the game on the TV (${errorCode}).`,
     )
   }
-  const session = ctx.getCurrentSession()
+  const session = context.getCurrentSession()
   if (!session) throw new Error("Couldn't start the game on the TV.")
   return new Promise((resolve, reject) => {
     const done = () => {
@@ -54,7 +55,7 @@ export async function castToTv(): Promise<string> {
     }
     const onMessage = (_ns: string, data: string | CastMsg) => {
       const msg: CastMsg = typeof data === "string" ? JSON.parse(data) : data
-      if (msg.t === "code") {
+      if (msg.type === "code") {
         done()
         resolve(msg.code)
       }
@@ -63,7 +64,7 @@ export async function castToTv(): Promise<string> {
     // The TV may still be loading or registering its room, so keep asking.
     const hello = () =>
       session
-        .sendMessage(CAST_NAMESPACE, { t: "hello" } satisfies CastMsg)
+        .sendMessage(CAST_NAMESPACE, { type: "hello" } satisfies CastMsg)
         .catch(() => {})
     hello()
     const poll = setInterval(hello, 1000)

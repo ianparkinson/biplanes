@@ -23,59 +23,62 @@ export interface PanelOptions {
 const menu = document.getElementById("menu")!
 const panel = document.getElementById("panel")!
 
-function button(label: string, action: () => void, cls = "") {
-  const b = document.createElement("button")
-  b.textContent = label
-  if (cls) b.className = cls
-  b.addEventListener("click", action)
-  return b
+function button(label: string, action: () => void, className = "") {
+  const element = document.createElement("button")
+  element.textContent = label
+  if (className) element.className = className
+  element.addEventListener("click", action)
+  return element
 }
 
 // Called every frame; only rebuilds the buttons when they actually change.
 let menuSignature = ""
 export function setMenu(items: MenuItem[] | null) {
   menu.hidden = !items || !panel.hidden
-  const sig = items ? items.map((i) => i.label + i.key).join("|") : ""
-  if (!items || sig === menuSignature) return
-  menuSignature = sig
+  const signature = items
+    ? items.map((item) => item.label + item.key).join("|")
+    : ""
+  if (!items || signature === menuSignature) return
+  menuSignature = signature
   menu.replaceChildren(
-    ...items.map((i) => {
-      const b = button(
+    ...items.map((item) => {
+      const element = button(
         "",
-        i.action,
-        [i.small && "small", i.keyboardOnly && "keyboard-only"]
+        item.action,
+        [item.small && "small", item.keyboardOnly && "keyboard-only"]
           .filter(Boolean)
           .join(" "),
       )
-      if (i.key) {
-        const k = document.createElement("span")
-        k.className = "key"
-        k.textContent = i.key + " "
-        b.append(k)
+      if (item.key) {
+        const keyHint = document.createElement("span")
+        keyHint.className = "key"
+        keyHint.textContent = item.key + " "
+        element.append(keyHint)
       }
-      b.append(i.label)
-      return b
+      element.append(item.label)
+      return element
     }),
   )
 }
 
-export function showPanel(o: PanelOptions) {
+// A full-screen dialog; replaces any dialog already showing.
+export function showPanel(options: PanelOptions) {
   const card = document.createElement("div")
   card.className = "card"
-  const h = document.createElement("h2")
-  h.textContent = o.title
-  card.append(h)
-  if (o.text) {
-    const p = document.createElement("p")
-    p.textContent = o.text
-    card.append(p)
+  const heading = document.createElement("h2")
+  heading.textContent = options.title
+  card.append(heading)
+  if (options.text) {
+    const paragraph = document.createElement("p")
+    paragraph.textContent = options.text
+    card.append(paragraph)
   }
-  if (o.url) card.append(invite(o.url))
+  if (options.url) card.append(invite(options.url))
   const row = document.createElement("div")
   row.className = "buttons"
   row.append(
-    ...o.buttons.map((b) =>
-      button(b.label, b.action, b.primary ? "primary" : ""),
+    ...options.buttons.map((spec) =>
+      button(spec.label, spec.action, spec.primary ? "primary" : ""),
     ),
   )
   card.append(row)

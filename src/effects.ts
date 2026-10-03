@@ -7,47 +7,48 @@ export interface Particle {
   y: number
   vx: number
   vy: number
-  life: number
+  life: number // seconds left
   color: string
 }
 
+const EXPLOSION_PARTICLES = 40
+const EXPLOSION_COLORS = ["#fff", "#f5d020", "#e8402a", "#444"]
 const SMOKE_RATE = 36 // puffs per second from a crashing plane
+const PARTICLE_GRAVITY = 120
 
 export class Effects {
   particles: Particle[] = []
-  private smoke = [0, 0]
+  // Per plane: fractional smoke puffs owed, so the rate is right at any frame rate.
+  private smokeOwed = [0, 0]
 
-  event(e: GameEvent) {
-    if (e.type !== "explode") return
-    const colors = ["#fff", "#f5d020", "#e8402a", "#444"]
-    for (let i = 0; i < 40; i++) {
-      const ang = Math.random() * Math.PI * 2,
-        s = 30 + Math.random() * 150
+  event(event: GameEvent) {
+    if (event.type !== "explode") return
+    for (let i = 0; i < EXPLOSION_PARTICLES; i++) {
+      // Fly out in a random direction at a random speed, biased upwards.
+      const direction = Math.random() * Math.PI * 2
+      const speed = 30 + Math.random() * 150
       this.particles.push({
-        x: e.x,
-        y: e.y,
-        vx: Math.cos(ang) * s,
-        vy: Math.sin(ang) * s - 40,
+        x: event.x,
+        y: event.y,
+        vx: Math.cos(direction) * speed,
+        vy: Math.sin(direction) * speed - 40,
         life: 0.5 + Math.random() * 0.8,
-        color: colors[i % colors.length],
+        color: EXPLOSION_COLORS[i % EXPLOSION_COLORS.length],
       })
     }
   }
 
   update(view: GameView, dt: number) {
-    for (const p of view.planes) {
-      if (p.state !== "crashing") {
-        this.smoke[p.id] = 0
+    for (const plane of view.planes) {
+      if (plane.state !== "crashing") {
+        this.smokeOwed[plane.id] = 0
         continue
       }
-      for (
-        this.smoke[p.id] += SMOKE_RATE * dt;
-        this.smoke[p.id] >= 1;
-        this.smoke[p.id]--
-      ) {
+      this.smokeOwed[plane.id] += SMOKE_RATE * dt
+      for (; this.smokeOwed[plane.id] >= 1; this.smokeOwed[plane.id]--) {
         this.particles.push({
-          x: p.x,
-          y: p.y,
+          x: plane.x,
+          y: plane.y,
           vx: 0,
           vy: -20,
           life: 0.6,
@@ -55,13 +56,13 @@ export class Effects {
         })
       }
     }
-    for (const pt of this.particles) {
-      pt.x += pt.vx * dt
-      pt.y += pt.vy * dt
-      pt.vy += 120 * dt
-      pt.life -= dt
+    for (const particle of this.particles) {
+      particle.x += particle.vx * dt
+      particle.y += particle.vy * dt
+      particle.vy += PARTICLE_GRAVITY * dt
+      particle.life -= dt
     }
-    this.particles = this.particles.filter((p) => p.life > 0)
+    this.particles = this.particles.filter((particle) => particle.life > 0)
   }
 
   clear() {

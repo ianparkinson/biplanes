@@ -16,9 +16,9 @@ import { KEYS, Keyboard, TouchControls, combine } from "./input"
 import {
   GuestLink,
   HostLink,
-  Snapshot,
   SnapshotBuffer,
   TIMEOUT,
+  TimedEvent,
   clearJoinFromUrl,
   codeFromUrl,
   encodeSnapshot,
@@ -37,6 +37,12 @@ import {
 } from "./sim"
 import { MenuItem, hidePanel, setMenu, showPanel } from "./ui"
 
+const SNAPSHOT_INTERVAL = 1 / 30 // seconds between snapshots sent to the guest
+const EVENT_REPEAT_WINDOW = 1 // seconds that each event is repeated in snapshots
+const CONNECT_TIMEOUT = 20 // seconds for a guest's first connection
+const RETRY_INTERVAL = 5 // seconds between a guest's reconnection attempts
+const MAX_FRAME_TIME = 0.25 // cap on catch-up after the tab was in the background
+
 const canvas = document.getElementById("game") as HTMLCanvasElement
 const ctx = canvas.getContext("2d")!
 
@@ -45,6 +51,10 @@ const effects = new Effects()
 const sfx = new Sfx()
 const keyboard = new Keyboard()
 const touch = new TouchControls(document.getElementById("controls")!)
+
+function now() {
+  return performance.now() / 1000
+}
 
 // Show the touch layout on phones and tablets, or as soon as the screen is touched.
 let touchMode = false
@@ -56,41 +66,43 @@ setTouchMode(matchMedia("(pointer: coarse)").matches)
 
 // Phones: go fullscreen and landscape where the browser allows it (Android Chrome; not iPhone Safari).
 function goFullscreen() {
-  const el = document.documentElement
-  if (!touchMode || document.fullscreenElement || !el.requestFullscreen) return
-  el.requestFullscreen({ navigationUI: "hide" })
+  const page = document.documentElement
+  if (!touchMode || document.fullscreenElement || !page.requestFullscreen)
+    return
+  page
+    .requestFullscreen({ navigationUI: "hide" })
     .then(() => (screen.orientation as any)?.lock?.("landscape"))
     .catch(() => {})
 }
 
-const now = () => performance.now() / 1000
-
 // ---- Roles ---------------------------------------------------------------------
 
+// Where an online game's connection is up to. Local play stays "connected".
 type Phase = "starting" | "waiting" | "connected" | "lost" | "error"
 let role: "local" | "host" | "guest" = "local"
 let phase: Phase = "connected"
+let phaseSince = 0
 
 // Host state
 let hostLink: HostLink | null = null
-let remoteInput: Input = NO_INPUT,
-  remoteSeq = -1
-let recentEvents: Snapshot["events"] = []
-let eventId = 0,
-  lastSnapshotAt = 0
+let guestInput: Input = NO_INPUT
+let guestInputSeq = -1 // newest input seen; the channel is unordered
+let recentEvents: TimedEvent[] = []
+let lastEventId = 0
+let lastSnapshotAt = 0
 
 // Guest state
 let guestLink: GuestLink | null = null
 const snapshots = new SnapshotBuffer()
-let inputSeq = 0,
-  phaseSince = 0,
-  lastRetry = 0
+let inputSeq = 0
+let lastRetry = 0
 
-function setPhase(p: Phase) {
-  phase = p
+function setPhase(newPhase: Phase) {
+  phase = newPhase
   phaseSince = now()
 }
 
+// Back to a fresh local game, closing any connection.
 function teardown() {
   hostLink?.close()
   guestLink?.close()
@@ -108,7 +120,7 @@ function leaveOnline() {
   clearJoinFromUrl()
 }
 
-function failed(message: string) {
+function connectionFailed(message: string) {
   setPhase("error")
   showPanel({
     title: "CONNECTION PROBLEM",
@@ -123,8 +135,8 @@ function hostOnline() {
   role = "host"
   setPhase("starting")
   game = createGame()
-  remoteInput = NO_INPUT
-  remoteSeq = -1
+  guestInput = NO_INPUT
+  guestInputSeq = -1
   recentEvents = []
   showPanel({
     title: "PLAY A FRIEND",
@@ -138,14 +150,14 @@ function hostOnline() {
     },
     onOpen: () => {},
     onClose: () => {},
-    onError: failed,
+    onError: connectionFailed,
     onMessage: (msg) => {
-      if (msg.t === "input") {
-        if (msg.seq > remoteSeq) {
-          remoteSeq = msg.seq
-          remoteInput = { rot: msg.rot, fire: msg.fire }
+      if (msg.type === "input") {
+        if (msg.seq > guestInputSeq) {
+          guestInputSeq = msg.seq
+          guestInput = { turn: msg.turn, fire: msg.fire }
         }
-      } else if (msg.t === "start" && game.mode !== "playing") {
+      } else if (msg.type === "start" && game.mode !== "playing") {
         startGame(game, false)
       }
     },
@@ -164,6 +176,8 @@ function showInvite() {
   })
 }
 
+// Opened from an invite link: ask first, so joining happens on a tap (which
+// browsers require before playing sound or going fullscreen).
 function inviteFromUrl(code: string) {
   showPanel({
     title: "JOIN GAME",
@@ -196,34 +210,36 @@ function joinOnline(code: string) {
   guestLink = new GuestLink(code, {
     onOpen: () => {},
     onClose: () => {},
-    onError: failed,
+    onError: connectionFailed,
     onMessage: (msg) => {
-      if (msg.t === "state") snapshots.push(msg, now())
+      if (msg.type === "state") snapshots.push(msg, now())
     },
   })
 }
 
-// Checks link health once a frame and moves between phases.
-function watchLink(t: number) {
+// Checks the connection once a frame and moves between phases. A link counts as
+// present only while messages keep arriving: a dropped phone often never closes
+// its connection cleanly.
+function watchLink(time: number) {
   if (
     role === "host" &&
     hostLink &&
     phase !== "starting" &&
     phase !== "error"
   ) {
-    const present = hostLink.open && t - hostLink.lastHeard < TIMEOUT
+    const present = hostLink.open && time - hostLink.lastHeard < TIMEOUT
     if (present && phase !== "connected") {
       setPhase("connected")
       hidePanel()
     } else if (!present && phase === "connected") {
       setPhase("lost")
-      remoteInput = NO_INPUT
+      guestInput = NO_INPUT
       showInvite()
     }
   }
   if (role === "guest" && guestLink && phase !== "error") {
     const present =
-      guestLink.open && t - guestLink.lastHeard < TIMEOUT && !snapshots.empty
+      guestLink.open && time - guestLink.lastHeard < TIMEOUT && !snapshots.empty
     if (present && phase !== "connected") {
       setPhase("connected")
       hidePanel()
@@ -234,12 +250,16 @@ function watchLink(t: number) {
         text: "Lost touch with the host. Trying to reconnect…",
         buttons: [{ label: "QUIT GAME", action: leaveOnline }],
       })
-    } else if (phase === "starting" && t - phaseSince > 20) {
-      failed(
+    } else if (phase === "starting" && time - phaseSince > CONNECT_TIMEOUT) {
+      connectionFailed(
         "Couldn't connect to that game. Your networks may be blocking a direct connection; try again, or both use Wi-Fi.",
       )
-    } else if (phase === "lost" && !guestLink.open && t - lastRetry > 5) {
-      lastRetry = t
+    } else if (
+      phase === "lost" &&
+      !guestLink.open &&
+      time - lastRetry > RETRY_INTERVAL
+    ) {
+      lastRetry = time
       guestLink.connect()
     }
   }
@@ -255,7 +275,7 @@ function startLocal(vsCpu: boolean) {
 function startOnline() {
   goFullscreen()
   if (role === "host") startGame(game, false)
-  else guestLink?.send({ t: "start" })
+  else guestLink?.send({ type: "start" })
 }
 
 function toggleMute() {
@@ -264,8 +284,8 @@ function toggleMute() {
 
 // Couch play: start the TV app on a Chromecast, then turn this phone into a controller.
 let canCast = false
-void loadCastSender().then((ok) => {
-  canCast = ok
+void loadCastSender().then((available) => {
+  canCast = available
 })
 
 function playOnTv() {
@@ -278,12 +298,12 @@ function playOnTv() {
     .then((code) => {
       location.href = padUrl(code)
     })
-    .catch((e: Error) => {
-      if (e.message === "cancelled") hidePanel()
+    .catch((error: Error) => {
+      if (error.message === "cancelled") hidePanel()
       else
         showPanel({
           title: "PLAY ON TV",
-          text: e.message,
+          text: error.message,
           buttons: [{ label: "OK", action: hidePanel, primary: true }],
         })
     })
@@ -326,21 +346,22 @@ function menuItems(mode: GameView["mode"]): MenuItem[] | null {
 }
 
 // Audio can only start from a user gesture; iOS wants it on the end of a touch.
-addEventListener("pointerdown", (e) => {
+addEventListener("pointerdown", (event) => {
   sfx.init()
-  if (e.pointerType === "touch" && !touchMode) setTouchMode(true)
+  if (event.pointerType === "touch" && !touchMode) setTouchMode(true)
 })
 addEventListener("pointerup", () => sfx.init())
 addEventListener("click", () => sfx.init())
-addEventListener("contextmenu", (e) => {
-  if (touchMode) e.preventDefault()
+addEventListener("contextmenu", (event) => {
+  if (touchMode) event.preventDefault() // no long-press menu on the buttons
 })
-addEventListener("keydown", (e) => {
+// Menu shortcuts; the in-game keys are read by the Keyboard class.
+addEventListener("keydown", (event) => {
   sfx.init()
-  if (e.code === "KeyM") toggleMute()
+  if (event.code === "KeyM") toggleMute()
   const mode = role === "guest" ? snapshots.view(now())?.mode : game.mode
   if (mode === "playing" || !document.getElementById("panel")!.hidden) return
-  const digit = e.code.replace(/^(Digit|Numpad)/, "")
+  const digit = event.code.replace(/^(Digit|Numpad)/, "")
   if (role === "local") {
     if (digit === "1") startLocal(true)
     if (digit === "2") startLocal(false)
@@ -351,10 +372,6 @@ addEventListener("keydown", (e) => {
 
 // ---- Main loop -----------------------------------------------------------------
 
-function localInput(): Input {
-  return combine(keyboard.input(KEYS[0]), touch.input())
-}
-
 function renderOptions(): RenderOptions {
   const controls = touchMode ? "touch" : "keys"
   if (role === "host") return { controls, labels: ["YOU", "FRIEND"], me: 0 }
@@ -364,69 +381,82 @@ function renderOptions(): RenderOptions {
     : { controls, labels: ["P1", "P2"] }
 }
 
-let last = now(),
-  acc = 0
-function frame() {
-  const t = now(),
-    dt = Math.min(0.25, t - last)
-  last = t
-  watchLink(t)
-  let view: GameView = game
+// Guest: send our input to the host, and work out what to draw from its snapshots.
+function guestFrame(time: number): [GameView, GameEvent[]] {
+  // Either keyboard layout or the touch buttons fly the guest's plane.
+  const input = combine(
+    combine(keyboard.input(KEYS[0]), keyboard.input(KEYS[1])),
+    touch.input(),
+  )
+  guestLink?.send({
+    type: "input",
+    seq: ++inputSeq,
+    turn: input.turn,
+    fire: input.fire,
+  })
+  return [snapshots.view(time) ?? game, snapshots.takeEvents(time)]
+}
+
+// Local or host: advance the simulation in fixed steps, however long the frame
+// took. The remainder carries over to the next frame.
+let stepTimeOwed = 0
+function simulationFrame(time: number, frameTime: number): GameEvent[] {
   const events: GameEvent[] = []
-
-  if (role === "guest") {
-    // Either keyboard layout or the touch buttons fly the guest's plane.
-    const inp = combine(
-      combine(keyboard.input(KEYS[0]), keyboard.input(KEYS[1])),
-      touch.input(),
-    )
-    guestLink?.send({
-      t: "input",
-      seq: ++inputSeq,
-      rot: inp.rot,
-      fire: inp.fire,
-    })
-    view = snapshots.view(t) ?? game
-    events.push(...snapshots.takeEvents(t))
-  } else {
-    // The host holds the game still while its guest is missing.
-    const running = role === "local" || phase === "connected"
-    acc = running ? acc + dt : 0
-    while (acc >= SIM_DT) {
-      const p1 = localInput()
-      const p2 =
-        role === "host"
-          ? remoteInput
-          : game.vsCpu
-            ? cpuInput(game, 1)
-            : keyboard.input(KEYS[1])
-      step(game, [p1, p2], SIM_DT)
-      acc -= SIM_DT
-      for (const e of game.events) {
-        events.push(e)
-        recentEvents.push([++eventId, game.time, e])
-      }
-      game.events.length = 0
+  // The host holds the game still while its guest is missing.
+  const running = role === "local" || phase === "connected"
+  stepTimeOwed = running ? stepTimeOwed + frameTime : 0
+  while (stepTimeOwed >= SIM_DT) {
+    const redInput = combine(keyboard.input(KEYS[0]), touch.input())
+    const yellowInput =
+      role === "host"
+        ? guestInput
+        : game.vsCpu
+          ? cpuInput(game, 1)
+          : keyboard.input(KEYS[1])
+    step(game, [redInput, yellowInput], SIM_DT)
+    stepTimeOwed -= SIM_DT
+    for (const event of game.events) {
+      events.push(event)
+      recentEvents.push([++lastEventId, game.time, event])
     }
-    if (role === "host" && t - lastSnapshotAt >= 1 / 30) {
-      lastSnapshotAt = t
-      recentEvents = recentEvents.filter((ev) => ev[1] > game.time - 1)
-      hostLink?.send(encodeSnapshot(game, recentEvents))
-    } else if (role === "local") recentEvents.length = 0
+    game.events.length = 0
   }
 
-  for (const e of events) {
-    sfx.play(e)
-    effects.event(e)
+  if (role === "host" && time - lastSnapshotAt >= SNAPSHOT_INTERVAL) {
+    lastSnapshotAt = time
+    recentEvents = recentEvents.filter(
+      ([, eventTime]) => eventTime > game.time - EVENT_REPEAT_WINDOW,
+    )
+    hostLink?.send(encodeSnapshot(game, recentEvents))
+  } else if (role === "local") recentEvents.length = 0
+  return events
+}
+
+let lastFrameAt = now()
+function frame() {
+  const time = now()
+  const frameTime = Math.min(MAX_FRAME_TIME, time - lastFrameAt)
+  lastFrameAt = time
+  watchLink(time)
+
+  let view: GameView = game
+  let events: GameEvent[]
+  if (role === "guest") [view, events] = guestFrame(time)
+  else events = simulationFrame(time, frameTime)
+
+  for (const event of events) {
+    sfx.play(event)
+    effects.event(event)
   }
-  effects.update(view, dt)
+  effects.update(view, frameTime)
   render(ctx, view, effects.particles, renderOptions())
-  view.planes.forEach((p, i) =>
+  view.planes.forEach((plane, i) =>
     sfx.engine(
       i,
-      view.mode === "playing" && (p.state === "ground" || p.state === "air"),
-      p.speed,
-      p.x,
+      view.mode === "playing" &&
+        (plane.state === "ground" || plane.state === "air"),
+      plane.speed,
+      plane.x,
     ),
   )
   setMenu(
@@ -436,5 +466,5 @@ function frame() {
 }
 requestAnimationFrame(frame)
 
-const invited = codeFromUrl()
-if (invited) inviteFromUrl(invited)
+const invitedCode = codeFromUrl()
+if (invitedCode) inviteFromUrl(invitedCode)
