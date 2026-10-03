@@ -33,5 +33,7 @@ npm run build    # type-check and build into dist/
 npm run format   # format all files with Prettier
 ```
 
+How it works, and why: [docs/design.md](docs/design.md).
+
 Pushing to `main` deploys to GitHub Pages. The deploy fails if any file isn't
 formatted with Prettier, so run `npm run format` before committing.
