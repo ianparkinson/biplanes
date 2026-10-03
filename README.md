@@ -30,6 +30,8 @@ M toggles sound.
 npm install
 npm run dev      # dev server, also reachable from phones on your network
 npm run build    # type-check and build into dist/
+npm run format   # format all files with Prettier
 ```
 
-Pushing to `main` deploys to GitHub Pages.
+Pushing to `main` deploys to GitHub Pages. The deploy fails if any file isn't
+formatted with Prettier, so run `npm run format` before committing.
